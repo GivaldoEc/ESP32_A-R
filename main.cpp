@@ -114,9 +114,7 @@ void printRun(void);                        //Print the speed data at LCD in rea
 void GlobalMenu(void);                      //The LCD menu to AR and AV modes
 void SaveRun();                             //Function to save the data to SD card
 void btSetup();
-
-//void setup_ble();   //Configures the BLE
-//void ble_Send();  //Send a packet via bluetooth
+void ble_Send();
 
 void setup()
 {
@@ -307,7 +305,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send();
+        ble_Send(t_30, t_c1, t_c2, t_100);
         break;
 
     case WAIT_30: //Waiting for the car to get trough 30m sensor
@@ -332,7 +330,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send();
+        ble_Send(t_30, t_c1, t_c2, t_100);
         printRun();
         break;
 
@@ -356,7 +354,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send();
+        ble_Send(t_30, t_c1, t_c2, t_100);
         printRun();
         break;
 
@@ -379,7 +377,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        // ble_Send();
+        ble_Send(t_30, t_c1, t_c2, t_100);
         printRun();
         break;
 
@@ -401,7 +399,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        // ble_Send();
+        ble_Send(t_30, t_c1, t_c2, t_100);
         printRun();
         break;
 
@@ -420,8 +418,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        // ble_Send();
-        // ss = SAVE;     //Trigger the Bluetooth main state
+        ble_Send(t_30, t_c1, t_c2, t_100); // ss = SAVE;     //Trigger the Bluetooth main state
         ss = SAVE;
         ss_r = START_;
         delay(10000);
@@ -630,4 +627,27 @@ void btSetup()
     server->getAdvertising()->start();
 
     Serial.println("Set up! Waiting for the moment...");
+}
+
+void ble_Send(long t_30, long t_c1, long t_c2, long t_100)
+{
+
+    char t1[8];
+    char t2[8];
+    char t3[8];
+    char t4[8];
+
+    dtostrf(t_30,8,3,t1);
+
+        if (deviceConnected)
+    {
+        time_in_30.setValue(t1);
+        time_c_start.setValue(t2);
+        time_c_end.setValue(t3);
+        time_in_100.setValue(t4);
+    }
+    else
+    {
+        //TO DO: Something that notifies, visually, the disconnection.
+    }
 }
