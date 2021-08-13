@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>

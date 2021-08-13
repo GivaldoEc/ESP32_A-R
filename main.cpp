@@ -1,3 +1,4 @@
+#include <Wire.h>
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <BLEDevice.h>
@@ -6,8 +7,9 @@
 #include <BLE2902.h>
 #include <string.h>
 #include <SPI.h>
-#include <SD.h>firefo
+#include <SD.h>
 #include <FS.h>
+
 
 /*Pins*/
 //Sensors
@@ -128,7 +130,7 @@ void setup()
     pinMode(S_C1, INPUT_PULLUP);
     pinMode(S_C2, INPUT_PULLUP);
     SD.begin(SD_CS); //SD initialize
-    lcd.begin();     //initialize the lcd ------------- changed from init()
+    lcd.init(21, 22);     //initialize the lcd ------------- changed from init()
     lcd.backlight(); //open the backlight
 }
 
@@ -609,7 +611,7 @@ BLECharacteristic time_in_100(
 
 void btSetup()
 {
-    BLEDevice::init("Tracking Module"); //server name
+    BLEDevice::init("CAPIBAJA"); //server name
 
     BLEServer *server = BLEDevice::createServer(); //BLE server creation
     server->setCallbacks(new ServerCallbacks());
