@@ -551,7 +551,7 @@ void SaveRun()
         lcd.print("Salvando. . .");
         lcd.setCursor(0, 1);
         lcd.print("Um momento");
-        delay(5000);
+        delay(4000);
     }
 
     if (controlmode == AR)
