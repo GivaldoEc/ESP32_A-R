@@ -12,11 +12,13 @@
 
 /*Pins*/
 //Sensors
-const byte S_ZERO = 27; //Initial sensor
-const byte S_30 = 16;   //30m sensor
-const byte S_100 = 17;  //100m sensor
-const byte S_C1 = 32;   //1st sensor on the corner
-const byte S_C2 = 33;   //2nd sensor on the corner
+const byte S_ZERO = 27;  //Initial sensor
+const byte S_30 = 16;    //30m sensor
+const byte S_100 = 17;   //100m sensor
+const byte S_100_2 = 18; //speed sensor, 1m away from S_100
+const byte S_C1 = 32;    //1st sensor on the corner
+const byte S_C2 = 33;    //2nd sensor on the corner
+
 //SD CS Pin
 const byte SD_CS = 5; //Pin used on SD module
 //Debug Pins
@@ -49,9 +51,10 @@ String str_30 = "00:000",
        str_101 = "00:000",
        str_vel = "00.00 km/h";
 //Bluetooth
-BLECharacteristic *time_in_30, *time_in_c_start, *time_in_c_end, *time_in_100;
-bool deviceConnected = false;        //Autoral support boolean to check if device is connected
+BLECharacteristic *time_in_30, *time_in_c_start, *time_in_c_end, *time_in_100, *time_in_100_2;
+bool deviceConnected = false; //Autoral support boolean to check if device is connected
 
+//analiza a situação do ble e altera a variavel
 class ServerCallbacks : public BLEServerCallbacks
 {
     void onConnect(BLEServer *server) { deviceConnected = true; }
@@ -89,10 +92,10 @@ volatile run_state ss_r = START_; //Initial secondary/run state setting
 state controlmode = INIT;         //Control if it is at AV or AR mode, will change the behavior of RunMode
 sv_state ss_sv;                   //Control the save machine state
 
-packet_ble data;                                                //Package to send by bluetooth
-bool interrupt = false;                                         //Autoral support boolean to interrupt functions
-unsigned long t_curr = 0;                                       //Current initial time, updated every run
-volatile unsigned long t_30 = 0, t_c1 = 0, t_c2 = 0, t_100 = 0; //Time variables
+packet_ble data;                                                             //Package to send by bluetooth
+bool interrupt = false;                                                      //Autoral support boolean to interrupt functions
+unsigned long t_curr = 0;                                                    //Current initial time, updated every run
+volatile unsigned long t_30 = 0, t_c1 = 0, t_c2 = 0, t_100 = 0, t_100_2 = 0; //Time variables
 bool saveFlag = false;
 bool saveComm = false;
 bool saveNotify = false;
@@ -115,7 +118,7 @@ void printRun(void);                        //Print the speed data at LCD in rea
 void GlobalMenu(void);                      //The LCD menu to AR and AV modes
 void SaveRun();                             //Function to save the data to SD card
 void btSetup();
-void ble_Send(long t_30, long t_c1, long t_c2, long t_100);
+void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2);
 
 void setup()
 {
@@ -126,6 +129,7 @@ void setup()
     pinMode(S_ZERO, INPUT_PULLDOWN);
     pinMode(S_30, INPUT_PULLUP);
     pinMode(S_100, INPUT_PULLUP);
+    pinMode(S_100_2, INPUT_PULLUP);
     pinMode(S_C1, INPUT_PULLUP);
     pinMode(S_C2, INPUT_PULLUP);
     //SD.begin(SD_CS);  //SD initialize
@@ -208,7 +212,7 @@ void loop()
 
     case SAVE:
         // Send through Ble
-        ble_Send(t_30, t_c1, t_c2, t_100);
+        ble_Send(t_30, t_c1, t_c2, t_100, t_100_2);
 
         // Save on SD
         pos[0] = 19;
@@ -388,7 +392,7 @@ void RunMode(void)
 
     case WAIT_100: //Waiting for the car to get trough 100m sensor
         Serial.println("WAIT_100\n");
-        if (((millis() - t_curr) - t_c2 > 1000) && !interrupt && (ss_r == WAIT_100)) //If at least one secont has passed and interrupt isn't active and this is the current state
+        if (((millis() - t_curr) - t_c2 > 1000) && !interrupt && (ss_r == WAIT_100)) //If at least one second has passed and interrupt isn't active and this is the current state
         {
             interrupt = true;                                                //Set the support boolean
             attachInterrupt(digitalPinToInterrupt(S_100), isr_100m, RISING); //Attach interrupt
@@ -611,108 +615,116 @@ BLECharacteristic time_c_end(
 BLECharacteristic time_in_100(
     BLEUUID((uint16_t)0x1801),
     BLECharacteristic::PROPERTY_READ);
+BLECharacteristic time_in_100_2(
+    BLEUUID((uint16_t)0x1801),
+    BLECharacteristic::PROPERTY_READ);
 
 void btSetup()
 {
-  BLEDevice::init("CAPIBAJA"); //server name
+    BLEDevice::init("CAPIBAJA"); //server name
 
-  BLEServer *server = BLEDevice::createServer(); //BLE server creation
-  server->setCallbacks(new ServerCallbacks());
+    BLEServer *server = BLEDevice::createServer(); //BLE server creation
+    server->setCallbacks(new ServerCallbacks());
 
-  //services
-  BLEService *newData = server->createService(BLEUUID((uint16_t)0x1700));
+    //services
+    BLEService *newData = server->createService(BLEUUID((uint16_t)0x1700));
 
+    //adding characteristics
+    time_in_30 = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
+                                               BLECharacteristic::PROPERTY_READ |
+                                                   BLECharacteristic::PROPERTY_NOTIFY);
+    time_in_c_start = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
+                                                    BLECharacteristic::PROPERTY_READ |
+                                                        BLECharacteristic::PROPERTY_NOTIFY);
+    time_in_c_end = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
+                                                  BLECharacteristic::PROPERTY_READ |
+                                                      BLECharacteristic::PROPERTY_NOTIFY);
+    time_in_100 = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
+                                                BLECharacteristic::PROPERTY_READ |
+                                                    BLECharacteristic::PROPERTY_NOTIFY);
+    time_in_100_2 = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
+                                                  BLECharacteristic::PROPERTY_READ |
+                                                      BLECharacteristic::PROPERTY_NOTIFY);
 
+    time_in_30->addDescriptor(new BLE2902());
+    time_in_c_start->addDescriptor(new BLE2902());
+    time_in_c_end->addDescriptor(new BLE2902());
+    time_in_100->addDescriptor(new BLE2902());
+    time_in_100_2->addDescriptor(new BLE2902());
 
-  //adding characteristics
-  time_in_30 = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
-                                BLECharacteristic::PROPERTY_READ |
-                                    BLECharacteristic::PROPERTY_NOTIFY);
-  time_in_c_start = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
-                                BLECharacteristic::PROPERTY_READ |
-                                    BLECharacteristic::PROPERTY_NOTIFY);
-  time_in_c_end = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
-                                BLECharacteristic::PROPERTY_READ |
-                                    BLECharacteristic::PROPERTY_NOTIFY);
-  time_in_100 = newData->createCharacteristic(BLEUUID((uint16_t)0x1801),
-                                BLECharacteristic::PROPERTY_READ |
-                                    BLECharacteristic::PROPERTY_NOTIFY);
+    server->getAdvertising()->addServiceUUID(BLEUUID((uint16_t)0x1700));
 
-  time_in_30->addDescriptor(new BLE2902());
-  time_in_c_start->addDescriptor(new BLE2902());
-  time_in_c_end->addDescriptor(new BLE2902());
-  time_in_100->addDescriptor(new BLE2902());
+    newData->start();
 
-  server->getAdvertising()->addServiceUUID(BLEUUID((uint16_t)0x1700));
+    /*setting advertisement*/
+    server->getAdvertising()->start();
 
-  newData->start();
-
-  /*setting advertisement*/
-  server->getAdvertising()->start();
-
-  Serial.println("Set up! Waiting for the moment...");
+    Serial.println("Set up! Waiting for the moment...");
 }
 
-
-void ble_Send(long t_30, long t_c1, long t_c2, long t_100)
+void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2)
 {
-  char t1[8];
-  char t2[8];
-  char t3[8];
-  char t4[8];
+    char t1[8];
+    char t2[8];
+    char t3[8];
+    char t4[8];
+    char t5[8];
 
-  dtostrf(t_30, 8, 3, t1);
-  dtostrf(t_c1, 8, 3, t2);
-  dtostrf(t_c2, 8, 3, t3);
-  dtostrf(t_100, 8, 3, t4);
+    dtostrf(t_30, 8, 3, t1);
+    dtostrf(t_c1, 8, 3, t2);
+    dtostrf(t_c2, 8, 3, t3);
+    dtostrf(t_100, 8, 3, t4);
+    dtostrf(t_100_2, 8, 3, t5);
 
-  if (deviceConnected)
-  {
-    time_in_30->setValue(t1);
-    time_in_30->notify();
-    time_in_c_start->setValue(t2);
-    time_in_c_start->notify();
-    time_in_c_end->setValue(t3);
-    time_in_c_end->notify();
-    time_in_100->setValue(t4);
-    time_in_100->notify();
-  }
-  else
-  {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Buscar Dispositivo Bt?");
-    lcd.setCursor(3, 1);
-    lcd.print(" SIM  NAO");
-    //print on the screen: "no device connected... try to scan again or use the SD card"
-    pot_sel = potSelect(POT, 2);
-    lcd.setCursor(pos[pot_sel] % 16, (int)pos[pot_sel] / 16);
-    lcd.write('>');
-    delay(50);
-
-    if (!digitalRead(B_SEL))
+    if (deviceConnected)
     {
-      delay(10);
-      while (!digitalRead(B_CANC))
-      { //Check if the button is pressed
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("Carregando.");
-        delay(500);
-        lcd.print(".");
-        delay(500);
-        lcd.print(".");
-        delay(500);
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("Carregando.");
-        delay(500);
-        lcd.print(".");
-        delay(500);
-        lcd.print(".");
-        delay(500);
-      }
-      ble_Send(t_30, t_c1, t_c2, t_100);
+        time_in_30->setValue(t1);
+        time_in_30->notify();
+        time_in_c_start->setValue(t2);
+        time_in_c_start->notify();
+        time_in_c_end->setValue(t3);
+        time_in_c_end->notify();
+        time_in_100->setValue(t4);
+        time_in_100->notify();
+        time_in_100_2->setValue(t5);
+        time_in_100_2->notify();
     }
-  }
+    else
+    {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Buscar Dispositivo Bt?");
+        lcd.setCursor(3, 1);
+        lcd.print(" SIM  NAO");
+        //print on the screen: "no device connected... try to scan again or use the SD card"
+        pot_sel = potSelect(POT, 2);
+        lcd.setCursor(pos[pot_sel] % 16, (int)pos[pot_sel] / 16);
+        lcd.write('>');
+        delay(50);
+
+        if (!digitalRead(B_SEL))
+        {
+            delay(10);
+            while (!digitalRead(B_CANC))
+            { //Check if the button is pressed
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("Carregando.");
+                delay(500);
+                lcd.print(".");
+                delay(500);
+                lcd.print(".");
+                delay(500);
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("Carregando.");
+                delay(500);
+                lcd.print(".");
+                delay(500);
+                lcd.print(".");
+                delay(500);
+            }
+            ble_Send(t_30, t_c1, t_c2, t_100, t_100_2);
+        }
+    }
 }
