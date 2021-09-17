@@ -21,9 +21,11 @@ const byte S_C2 = 33;    //2nd sensor on the corner
 
 //SD CS Pin
 const byte SD_CS = 5; //Pin used on SD module
-//Debug Pins
+//Debug Pins 
+/*
 const byte LED = 34;   //LED for debugging
 const byte extLED = 4; //External LED for debugging
+*/
 //LCD Pin
 const byte POT = 13;    //Pot signal to LCD cursor
 const byte B_SEL = 25;  //Button select to LCD
@@ -36,6 +38,7 @@ typedef struct
     volatile unsigned long time_c_start;
     volatile unsigned long time_c_end;
     volatile unsigned long time_in_100;
+    volatile unsigned long instantSpeed;
     float tempCVT;
     float tempMTR;
 
@@ -50,6 +53,7 @@ String str_30 = "00:000",
        str_100 = "00:000",
        str_101 = "00:000",
        str_vel = "00.00 km/h";
+
 //Bluetooth
 BLECharacteristic *time_in_30, *time_in_c_start, *time_in_c_end, *time_in_100, *time_in_100_2;
 bool deviceConnected = false; //Autoral support boolean to check if device is connected
@@ -78,6 +82,7 @@ typedef enum
     WAIT_C1,
     WAIT_C2,
     WAIT_100,
+    WAIT_100_2,
     END_RUN
 } run_state; //states from the run mode
 typedef enum
@@ -92,10 +97,10 @@ volatile run_state ss_r = START_; //Initial secondary/run state setting
 state controlmode = INIT;         //Control if it is at AV or AR mode, will change the behavior of RunMode
 sv_state ss_sv;                   //Control the save machine state
 
-packet_ble data;                                                             //Package to send by bluetooth
-bool interrupt = false;                                                      //Autoral support boolean to interrupt functions
-unsigned long t_curr = 0;                                                    //Current initial time, updated every run
-volatile unsigned long t_30 = 0, t_c1 = 0, t_c2 = 0, t_100 = 0, t_100_2 = 0; //Time variables
+packet_ble data;                                                                    //Package to send by bluetooth
+bool interrupt = false;                                                             //Autoral support boolean to interrupt functions
+unsigned long t_curr = 0;                                                           //Current initial time, updated every run
+volatile unsigned long t_30 = 0, t_c1 = 0, t_c2 = 0, t_100 = 0, t_100_2 = 0, speed; //Time variables
 bool saveFlag = false;
 bool saveComm = false;
 bool saveNotify = false;
@@ -107,6 +112,8 @@ byte curr_pos = 0;
 byte pos[4]; //Number of positions the potentiometer must go through
 
 /*Funções*/
+
+long instantSpeed(volatile unsigned long t100, volatile unsigned long t100_2);
 char potSelect(byte pin, byte num_options); //Show the LCD cursor position and give the control about which option it is
 void RunMode(void);                         //AR and AV function
 void isr_30m();                             //30m interrupt
@@ -118,7 +125,8 @@ void printRun(void);                        //Print the speed data at LCD in rea
 void GlobalMenu(void);                      //The LCD menu to AR and AV modes
 void SaveRun();                             //Function to save the data to SD card
 void btSetup();
-void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2);
+void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long speed);
+void isr_100_2();
 
 void setup()
 {
@@ -212,7 +220,7 @@ void loop()
 
     case SAVE:
         // Send through Ble
-        ble_Send(t_30, t_c1, t_c2, t_100, t_100_2);
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
 
         // Save on SD
         pos[0] = 19;
@@ -302,6 +310,8 @@ void RunMode(void)
         t_c1 = 0;
         t_c2 = 0;
         t_100 = 0;
+        t_100_2 = 0;
+        speed = 0;
         printRun();
         //strcpy(run_fileName, "");
         if (digitalRead(S_ZERO)) //If the car isn't in front of sensor anymore
@@ -314,7 +324,9 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send(t_30, t_c1, t_c2, t_100);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
         break;
 
     case WAIT_30: //Waiting for the car to get trough 30m sensor
@@ -332,6 +344,7 @@ void RunMode(void)
             t_c1 = millis() - t_curr;
             t_c2 = millis() - t_curr;
             t_100 = millis() - t_curr;
+            t_100_2 = millis() - t_curr;
             printRun();
         }
         //Update all variables in the data package
@@ -339,7 +352,9 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send(t_30, t_c1, t_c2, t_100);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
         printRun();
         break;
 
@@ -363,7 +378,9 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send(t_30, t_c1, t_c2, t_100);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
         printRun();
         break;
 
@@ -386,7 +403,9 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send(t_30, t_c1, t_c2, t_100);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
         printRun();
         break;
 
@@ -401,6 +420,9 @@ void RunMode(void)
         {
             //While in this state this variables will be updated
             t_100 = millis() - t_curr;
+            if (ss == AV)
+            {
+            }
             printRun();
         }
         //Update all variables in the data package
@@ -408,7 +430,35 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
-        //ble_Send(t_30, t_c1, t_c2, t_100);
+        speed = instantSpeed(t_100, t_100_2);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
+        printRun();
+        break;
+    case WAIT_100_2: //Waiting for the car to get trough 100m sensor
+        Serial.println("WAIT_100_2\n");
+        if (((millis() - t_curr) - t_100 > 1000) && !interrupt && (ss_r == WAIT_100_2)) //If at least one second has passed and interrupt isn't active and this is the current state
+        {
+            interrupt = true;                                                //Set the support boolean
+            attachInterrupt(digitalPinToInterrupt(S_100_2), isr_100_2, RISING); //Attach interrupt
+        }
+        else
+        {
+            //While in this state this variables will be updated
+            t_100_2 = millis() - t_curr;
+            
+            printRun();
+        }
+        //Update all variables in the data package
+        data.time_in_30 = t_30;
+        data.time_c_start = t_c1;
+        data.time_c_end = t_c2;
+        data.time_in_100 = t_100;
+        speed = instantSpeed(t_100, t_100_2);
+        data.instantSpeed = speed;
+
+        ble_Send(t_30, t_c1, t_c2, t_100, speed);
         printRun();
         break;
 
@@ -427,6 +477,7 @@ void RunMode(void)
         data.time_c_start = t_c1;
         data.time_c_end = t_c2;
         data.time_in_100 = t_100;
+        data.instantSpeed = speed;
         // ss = SAVE;
         ss = SAVE;
         ss_r = START_;
@@ -467,10 +518,18 @@ void isr_c2() //End of corner interrupt function
 
 void isr_100m() //100m interrupt function
 {
-    ss_r = END_RUN; //Trigger the secondary state for end the RUN
+    ss_r = WAIT_100_2; //Trigger the secondary state for end the RUN
 
     interrupt = false;                             //Reset support boolean
     detachInterrupt(digitalPinToInterrupt(S_100)); //Detach Interrupt
+}
+
+void isr_100_2() //100m interrupt function
+{
+    ss_r = END_RUN; //Trigger the secondary state for end the RUN
+
+    interrupt = false;                             //Reset support boolean
+    detachInterrupt(digitalPinToInterrupt(S_100_2)); //Detach Interrupt
 }
 
 String format_time(unsigned long int t1)
@@ -591,6 +650,8 @@ void SaveRun()
         f.print(", "); /*f.print(data.time_c_start); f.print(", "); f.print(data.time_c_end); f.print(", "); */
         f.print(data.time_in_100);
         f.print(", ");
+        f.print(data.instantSpeed);
+        f.print(", ");
         f.print(data.tempCVT);
         f.print(", ");
         f.print(data.tempMTR); //Print data to file
@@ -603,6 +664,7 @@ void SaveRun()
 // bluetooth - 0x1801
 
 //characteristics
+/*
 BLECharacteristic time_in_30(
     BLEUUID((uint16_t)0x1801),
     BLECharacteristic::PROPERTY_READ);
@@ -618,7 +680,7 @@ BLECharacteristic time_in_100(
 BLECharacteristic time_in_100_2(
     BLEUUID((uint16_t)0x1801),
     BLECharacteristic::PROPERTY_READ);
-
+*/
 void btSetup()
 {
     BLEDevice::init("CAPIBAJA"); //server name
@@ -662,7 +724,7 @@ void btSetup()
     Serial.println("Set up! Waiting for the moment...");
 }
 
-void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2)
+void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long speed)
 {
     char t1[8];
     char t2[8];
@@ -674,7 +736,7 @@ void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2)
     dtostrf(t_c1, 8, 3, t2);
     dtostrf(t_c2, 8, 3, t3);
     dtostrf(t_100, 8, 3, t4);
-    dtostrf(t_100_2, 8, 3, t5);
+    dtostrf(speed, 8, 3, t5);
 
     if (deviceConnected)
     {
@@ -689,7 +751,7 @@ void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2)
         time_in_100_2->setValue(t5);
         time_in_100_2->notify();
     }
-    else
+    if(!deviceConnected && ss==SAVE)
     {
         lcd.clear();
         lcd.setCursor(0, 0);
@@ -724,7 +786,14 @@ void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long t_100_2)
                 lcd.print(".");
                 delay(500);
             }
-            ble_Send(t_30, t_c1, t_c2, t_100, t_100_2);
+            ble_Send(t_30, t_c1, t_c2, t_100, speed);
         }
     }
+}
+
+long instantSpeed(volatile unsigned long t100, volatile unsigned long t100_2)
+{
+    long result;
+    result = 1 / (t100_2 - t100); // the sensors have to be a meter away from each other
+    return result;
 }
