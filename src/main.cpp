@@ -21,7 +21,7 @@ const byte S_C2 = 33;    //2nd sensor on the corner
 
 //SD CS Pin
 const byte SD_CS = 5; //Pin used on SD module
-//Debug Pins 
+//Debug Pins
 /*
 const byte LED = 34;   //LED for debugging
 const byte extLED = 4; //External LED for debugging
@@ -440,14 +440,14 @@ void RunMode(void)
         Serial.println("WAIT_100_2\n");
         if (((millis() - t_curr) - t_100 > 1000) && !interrupt && (ss_r == WAIT_100_2)) //If at least one second has passed and interrupt isn't active and this is the current state
         {
-            interrupt = true;                                                //Set the support boolean
+            interrupt = true;                                                   //Set the support boolean
             attachInterrupt(digitalPinToInterrupt(S_100_2), isr_100_2, RISING); //Attach interrupt
         }
         else
         {
             //While in this state this variables will be updated
             t_100_2 = millis() - t_curr;
-            
+
             printRun();
         }
         //Update all variables in the data package
@@ -518,8 +518,14 @@ void isr_c2() //End of corner interrupt function
 
 void isr_100m() //100m interrupt function
 {
-    ss_r = WAIT_100_2; //Trigger the secondary state for end the RUN
-
+    if (controlmode == AV)
+    {
+        ss_r = WAIT_100_2; //Trigger the secondary state for end the RUN
+    }
+    else
+    {
+        ss_r = END_RUN;
+    }
     interrupt = false;                             //Reset support boolean
     detachInterrupt(digitalPinToInterrupt(S_100)); //Detach Interrupt
 }
@@ -528,7 +534,7 @@ void isr_100_2() //100m interrupt function
 {
     ss_r = END_RUN; //Trigger the secondary state for end the RUN
 
-    interrupt = false;                             //Reset support boolean
+    interrupt = false;                               //Reset support boolean
     detachInterrupt(digitalPinToInterrupt(S_100_2)); //Detach Interrupt
 }
 
@@ -751,7 +757,7 @@ void ble_Send(long t_30, long t_c1, long t_c2, long t_100, long speed)
         time_in_100_2->setValue(t5);
         time_in_100_2->notify();
     }
-    if(!deviceConnected && ss==SAVE)
+    if (!deviceConnected && ss == SAVE)
     {
         lcd.clear();
         lcd.setCursor(0, 0);
